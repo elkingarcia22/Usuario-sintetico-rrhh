@@ -11,6 +11,18 @@ CREATE TABLE IF NOT EXISTS registro_interacciones (
   metadata JSONB DEFAULT '{}'::jsonb
 );
 
+-- Crear tabla para decisiones simuladas
+CREATE TABLE IF NOT EXISTS decisiones_simuladas (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  usuario TEXT NOT NULL,
+  contexto TEXT NOT NULL,
+  decision TEXT NOT NULL,
+  razonamiento TEXT NOT NULL,
+  confianza INTEGER NOT NULL CHECK (confianza >= 0 AND confianza <= 100),
+  fecha TIMESTAMPTZ DEFAULT NOW(),
+  metadata JSONB DEFAULT '{}'::jsonb
+);
+
 -- Crear tabla para perfiles de usuarios sintéticos
 CREATE TABLE IF NOT EXISTS perfiles_usuarios_sinteticos (
   id SERIAL PRIMARY KEY,
@@ -56,14 +68,21 @@ INSERT INTO perfiles_usuarios_sinteticos (
 -- Crear índices para optimizar consultas
 CREATE INDEX IF NOT EXISTS idx_registro_interacciones_usuario ON registro_interacciones(usuario);
 CREATE INDEX IF NOT EXISTS idx_registro_interacciones_fecha ON registro_interacciones(fecha);
+CREATE INDEX IF NOT EXISTS idx_decisiones_usuario ON decisiones_simuladas(usuario);
+CREATE INDEX IF NOT EXISTS idx_decisiones_fecha ON decisiones_simuladas(fecha);
+CREATE INDEX IF NOT EXISTS idx_decisiones_confianza ON decisiones_simuladas(confianza);
 CREATE INDEX IF NOT EXISTS idx_perfiles_activos ON perfiles_usuarios_sinteticos(activo);
 
 -- Habilitar RLS (Row Level Security)
 ALTER TABLE registro_interacciones ENABLE ROW LEVEL SECURITY;
+ALTER TABLE decisiones_simuladas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE perfiles_usuarios_sinteticos ENABLE ROW LEVEL SECURITY;
 
 -- Crear políticas de seguridad (ajusta según tus necesidades)
 CREATE POLICY "Permitir lectura pública" ON registro_interacciones FOR SELECT USING (true);
 CREATE POLICY "Permitir inserción pública" ON registro_interacciones FOR INSERT WITH CHECK (true);
+
+CREATE POLICY "Permitir lectura pública decisiones" ON decisiones_simuladas FOR SELECT USING (true);
+CREATE POLICY "Permitir inserción pública decisiones" ON decisiones_simuladas FOR INSERT WITH CHECK (true);
 
 CREATE POLICY "Permitir lectura pública perfiles" ON perfiles_usuarios_sinteticos FOR SELECT USING (activo = true);
