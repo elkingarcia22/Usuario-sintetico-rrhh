@@ -4,6 +4,7 @@ import { registrarEvento } from "../src/modules/trackerComportamiento.js";
 import { obtenerEstadisticasClarity } from "../src/modules/trackerVisual.js";
 import { analizarPatronesComportamiento, analizarRendimientoSistema, generarReporteEjecutivo } from "../src/modules/analizadorPatrones.js";
 import NodeCache from "node-cache";
+import rateLimit from "express-rate-limit";
 import dotenv from "dotenv";
 
 // Cargar variables de entorno
@@ -17,6 +18,29 @@ const supabase = createClient(SUPABASE_URL!, SUPABASE_ANON_KEY!);
 
 const app = express();
 app.use(express.json());
+
+// Rate Limiting - Protección contra saturación
+const limiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minuto
+  max: 10, // máximo 10 requests por minuto
+  message: {
+    ok: false,
+    error: "⛔ Límite de solicitudes alcanzado, intenta más tarde.",
+    retryAfter: "60 segundos"
+  },
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  handler: (req, res) => {
+    console.log(`🚫 Rate limit excedido para IP: ${req.ip}`);
+    res.status(429).json({
+      ok: false,
+      error: "⛔ Límite de solicitudes alcanzado, intenta más tarde.",
+      retryAfter: "60 segundos"
+    });
+  }
+});
+
+app.use(limiter);
 
 // Middleware para CORS
 app.use((req, res, next) => {
@@ -440,6 +464,49 @@ app.get("/api/valeria/cache", async (req, res) => {
   }
 });
 
+// Endpoint para estadísticas de rate limiting
+app.get("/api/valeria/rate-limit", async (req, res) => {
+  try {
+    // Obtener estadísticas de rate limiting desde tracking
+    const { data: eventosRateLimit, error } = await supabase
+      .from("tracking_valeria")
+      .select("*")
+      .ilike("evento", "%rate_limit%")
+      .order("fecha", { ascending: false })
+      .limit(50);
+
+    if (error) {
+      console.error("❌ Error obteniendo estadísticas de rate limiting:", error);
+      return res.status(500).json({ 
+        ok: false, 
+        error: "Error obteniendo estadísticas de rate limiting" 
+      });
+    }
+
+    res.json({
+      ok: true,
+      configuracion: {
+        windowMs: "60 segundos",
+        maxRequests: 10,
+        mensaje: "⛔ Límite de solicitudes alcanzado, intenta más tarde."
+      },
+      estadisticas: {
+        eventosRateLimit: eventosRateLimit?.length || 0,
+        ultimoEvento: eventosRateLimit?.[0]?.fecha || null,
+        status: "Rate limiting activo y monitoreando"
+      },
+      eventos: eventosRateLimit || [],
+      status: "Estadísticas de rate limiting obtenidas exitosamente"
+    });
+  } catch (error) {
+    console.error("❌ Error inesperado:", error);
+    res.status(500).json({ 
+      ok: false, 
+      error: "Error inesperado" 
+    });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
@@ -455,5 +522,7 @@ app.listen(PORT, () => {
   console.log("   GET  /api/valeria/rendimiento - Análisis de rendimiento del sistema");
   console.log("   GET  /api/valeria/reporte - Reporte ejecutivo completo");
   console.log("   GET  /api/valeria/cache - Estadísticas de caché de respuestas");
+  console.log("   GET  /api/valeria/rate-limit - Estadísticas de rate limiting");
   console.log("🔗 URL pública ngrok: https://0f85858ad965.ngrok-free.app");
+  console.log("🛡️ Rate Limiting: 10 requests/minuto por IP");
 });
