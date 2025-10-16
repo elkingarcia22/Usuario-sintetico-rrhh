@@ -1,7 +1,9 @@
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
-dotenv.config();
+
+// Cargar variables de entorno desde .env.local
+dotenv.config({ path: '.env.local' });
 
 const app = express();
 app.use(express.json());
@@ -50,10 +52,16 @@ app.get("/api/valeria/rendimiento", async (_, res) => {
   }
 });
 
-// Endpoint de métricas diarias
+// Endpoint de métricas diarias (consulta directa)
 app.get("/api/valeria/metricas-diarias", async (_, res) => {
   try {
-    const { data, error } = await supabase.from("metricas_diarias_valeria").select("*");
+    // Consulta directa a la tabla tracking_valeria
+    const { data, error } = await supabase
+      .from("tracking_valeria")
+      .select("evento, confianza, fecha")
+      .gte("fecha", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
+      .order("fecha", { ascending: false });
+
     if (error) {
       console.error("❌ Error obteniendo métricas diarias:", error);
       return res.status(500).json({ 
@@ -61,10 +69,46 @@ app.get("/api/valeria/metricas-diarias", async (_, res) => {
         error: error.message 
       });
     }
+
+    // Procesar datos para agrupar por día
+    const metricasPorDia = data?.reduce((acc: any, curr: any) => {
+      const fecha = new Date(curr.fecha).toISOString().split('T')[0];
+      if (!acc[fecha]) {
+        acc[fecha] = {
+          fecha: fecha,
+          total_eventos: 0,
+          interacciones_iniciadas: 0,
+          respuestas_generadas: 0,
+          respuestas_cache: 0,
+          confianza_total: 0,
+          confianza_count: 0
+        };
+      }
+      acc[fecha].total_eventos++;
+      if (curr.evento === 'interaccion_iniciada') acc[fecha].interacciones_iniciadas++;
+      if (curr.evento === 'respuesta_generada') acc[fecha].respuestas_generadas++;
+      if (curr.evento === 'respuesta_cache') acc[fecha].respuestas_cache++;
+      if (curr.confianza) {
+        acc[fecha].confianza_total += curr.confianza;
+        acc[fecha].confianza_count++;
+      }
+      return acc;
+    }, {}) || {};
+
+    // Calcular métricas finales
+    const resultado = Object.values(metricasPorDia).map((dia: any) => ({
+      fecha: dia.fecha,
+      total_eventos: dia.total_eventos,
+      interacciones_iniciadas: dia.interacciones_iniciadas,
+      respuestas_generadas: dia.respuestas_generadas,
+      respuestas_cache: dia.respuestas_cache,
+      confianza_promedio: dia.confianza_count > 0 ? 
+        Math.round((dia.confianza_total / dia.confianza_count) * 100) / 100 : 0
+    })).sort((a: any, b: any) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
     
     res.json({
       ok: true,
-      data: data || [],
+      data: resultado,
       timestamp: new Date().toISOString(),
       status: "Métricas diarias obtenidas exitosamente"
     });
@@ -77,10 +121,16 @@ app.get("/api/valeria/metricas-diarias", async (_, res) => {
   }
 });
 
-// Endpoint de eventos por tipo
+// Endpoint de eventos por tipo (consulta directa)
 app.get("/api/valeria/eventos-por-tipo", async (_, res) => {
   try {
-    const { data, error } = await supabase.from("eventos_por_tipo_valeria").select("*");
+    // Consulta directa a la tabla tracking_valeria
+    const { data, error } = await supabase
+      .from("tracking_valeria")
+      .select("evento, confianza, fecha")
+      .gte("fecha", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
+      .order("fecha", { ascending: false });
+
     if (error) {
       console.error("❌ Error obteniendo eventos por tipo:", error);
       return res.status(500).json({ 
@@ -88,10 +138,35 @@ app.get("/api/valeria/eventos-por-tipo", async (_, res) => {
         error: error.message 
       });
     }
+
+    // Procesar datos para agrupar por tipo de evento
+    const eventosPorTipo = data?.reduce((acc: any, curr: any) => {
+      if (!acc[curr.evento]) {
+        acc[curr.evento] = {
+          evento: curr.evento,
+          frecuencia: 0,
+          confianza_total: 0,
+          fechas: []
+        };
+      }
+      acc[curr.evento].frecuencia++;
+      acc[curr.evento].confianza_total += curr.confianza;
+      acc[curr.evento].fechas.push(curr.fecha);
+      return acc;
+    }, {}) || {};
+
+    // Calcular métricas finales
+    const resultado = Object.values(eventosPorTipo).map((evento: any) => ({
+      evento: evento.evento,
+      frecuencia: evento.frecuencia,
+      confianza_promedio: Math.round((evento.confianza_total / evento.frecuencia) * 100) / 100,
+      primera_ocurrencia: Math.min(...evento.fechas.map((f: string) => new Date(f).getTime())),
+      ultima_ocurrencia: Math.max(...evento.fechas.map((f: string) => new Date(f).getTime()))
+    })).sort((a: any, b: any) => b.frecuencia - a.frecuencia);
     
     res.json({
       ok: true,
-      data: data || [],
+      data: resultado,
       timestamp: new Date().toISOString(),
       status: "Eventos por tipo obtenidos exitosamente"
     });
