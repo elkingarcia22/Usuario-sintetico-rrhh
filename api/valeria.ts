@@ -2,6 +2,7 @@ import express from "express";
 import { createClient } from "@supabase/supabase-js";
 import { registrarEvento } from "../src/modules/trackerComportamiento.js";
 import { obtenerEstadisticasClarity } from "../src/modules/trackerVisual.js";
+import { analizarPatronesComportamiento, analizarRendimientoSistema, generarReporteEjecutivo } from "../src/modules/analizadorPatrones.js";
 import dotenv from "dotenv";
 
 // Cargar variables de entorno
@@ -307,6 +308,79 @@ app.get("/api/valeria/clarity", async (req, res) => {
   }
 });
 
+// Endpoint para análisis de patrones de comportamiento
+app.get("/api/valeria/patrones", async (req, res) => {
+  try {
+    const { dias = 7 } = req.query;
+    const patrones = await analizarPatronesComportamiento("Valeria Gómez", parseInt(dias as string));
+    
+    res.json({
+      ok: true,
+      usuario: "Valeria Gómez",
+      periodo: `Últimos ${dias} días`,
+      totalPatrones: patrones.length,
+      patrones,
+      resumen: {
+        patronesActivos: patrones.filter(p => p.frecuencia > 0).length,
+        confianzaPromedio: patrones.length > 0 ? 
+          Math.round(patrones.reduce((sum, p) => sum + p.confianzaPromedio, 0) / patrones.length) : 0,
+        tendenciasPositivas: patrones.filter(p => p.tendencia === 'creciente').length,
+        tendenciasNegativas: patrones.filter(p => p.tendencia === 'decreciente').length
+      }
+    });
+  } catch (error) {
+    console.error("❌ Error analizando patrones:", error);
+    res.status(500).json({ 
+      ok: false, 
+      error: "Error analizando patrones de comportamiento" 
+    });
+  }
+});
+
+// Endpoint para análisis de rendimiento del sistema
+app.get("/api/valeria/rendimiento", async (req, res) => {
+  try {
+    const { dias = 7 } = req.query;
+    const rendimiento = await analizarRendimientoSistema("Valeria Gómez", parseInt(dias as string));
+    
+    res.json({
+      ok: true,
+      usuario: "Valeria Gómez",
+      periodo: `Últimos ${dias} días`,
+      rendimiento,
+      status: "Análisis de rendimiento completado"
+    });
+  } catch (error) {
+    console.error("❌ Error analizando rendimiento:", error);
+    res.status(500).json({ 
+      ok: false, 
+      error: "Error analizando rendimiento del sistema" 
+    });
+  }
+});
+
+// Endpoint para reporte ejecutivo completo
+app.get("/api/valeria/reporte", async (req, res) => {
+  try {
+    const { dias = 7 } = req.query;
+    const reporte = await generarReporteEjecutivo("Valeria Gómez", parseInt(dias as string));
+    
+    res.json({
+      ok: true,
+      usuario: "Valeria Gómez",
+      periodo: `Últimos ${dias} días`,
+      reporte,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error("❌ Error generando reporte:", error);
+    res.status(500).json({ 
+      ok: false, 
+      error: "Error generando reporte ejecutivo" 
+    });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
@@ -318,5 +392,8 @@ app.listen(PORT, () => {
   console.log("   GET  /api/valeria/historial - Historial de interacciones en Supabase");
   console.log("   GET  /api/valeria/tracking - Tracking de comportamiento de Valeria");
   console.log("   GET  /api/valeria/clarity - Estadísticas de Microsoft Clarity");
+  console.log("   GET  /api/valeria/patrones - Análisis de patrones de comportamiento");
+  console.log("   GET  /api/valeria/rendimiento - Análisis de rendimiento del sistema");
+  console.log("   GET  /api/valeria/reporte - Reporte ejecutivo completo");
   console.log("🔗 URL pública ngrok: https://0f85858ad965.ngrok-free.app");
 });
