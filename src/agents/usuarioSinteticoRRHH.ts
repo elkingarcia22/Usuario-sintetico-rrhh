@@ -4,6 +4,7 @@ import { obtenerContexto } from "../modules/memoriaContextual";
 import { simularDecision, analizarPatronesDecisiones } from "../modules/simuladorDecisiones";
 import { registrarEvento } from "../modules/trackerComportamiento.js";
 import { iniciarClarity, registrarInteraccionClarity } from "../modules/trackerVisual.js";
+import { getCachedResponse, setCachedResponse } from "../modules/cacheRespuestas.js";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -35,6 +36,21 @@ if (process.env.CLARITY_PROJECT_ID) {
 
 // --- Función principal del usuario sintético ---
 export async function responderComoRRHH(prompt: string) {
+  // Verificar caché primero
+  const cachedResponse = getCachedResponse(prompt);
+  if (cachedResponse) {
+    console.log("🚀 Respuesta servida desde caché - ahorro de tokens Gemini");
+    
+    // Registrar evento de caché
+    await registrarEvento(
+      "respuesta_cache",
+      `Respuesta servida desde caché para: "${prompt.substring(0, 60)}..."`,
+      100 // 100% confianza para respuestas en caché
+    );
+    
+    return cachedResponse;
+  }
+
   // Registrar inicio de respuesta en Clarity
   await registrarInteraccionClarity("inicio_respuesta", "Valeria comenzó a procesar un prompt");
   
@@ -58,6 +74,9 @@ ${contextoPrevio || "(sin historial previo)"}
   });
 
   const respuesta = result.response.text();
+
+  // Guardar respuesta en caché
+  setCachedResponse(prompt, respuesta);
 
   // Registrar generación de respuesta en Clarity
   await registrarInteraccionClarity("generando_respuesta", `Respuesta generada con ${respuesta.length} caracteres`);

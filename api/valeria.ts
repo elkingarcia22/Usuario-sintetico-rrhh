@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { registrarEvento } from "../src/modules/trackerComportamiento.js";
 import { obtenerEstadisticasClarity } from "../src/modules/trackerVisual.js";
 import { analizarPatronesComportamiento, analizarRendimientoSistema, generarReporteEjecutivo } from "../src/modules/analizadorPatrones.js";
+import NodeCache from "node-cache";
 import dotenv from "dotenv";
 
 // Cargar variables de entorno
@@ -381,6 +382,64 @@ app.get("/api/valeria/reporte", async (req, res) => {
   }
 });
 
+// Endpoint para estadísticas de caché
+app.get("/api/valeria/cache", async (req, res) => {
+  try {
+    // Obtener estadísticas de caché desde tracking
+    const { data: eventosCache, error } = await supabase
+      .from("tracking_valeria")
+      .select("*")
+      .eq("evento", "respuesta_cache")
+      .order("fecha", { ascending: false })
+      .limit(50);
+
+    if (error) {
+      console.error("❌ Error obteniendo estadísticas de caché:", error);
+      return res.status(500).json({ 
+        ok: false, 
+        error: "Error obteniendo estadísticas de caché" 
+      });
+    }
+
+    // Obtener total de respuestas generadas para calcular ratio
+    const { data: eventosGenerados, error: errorGenerados } = await supabase
+      .from("tracking_valeria")
+      .select("*")
+      .eq("evento", "respuesta_generada")
+      .order("fecha", { ascending: false })
+      .limit(100);
+
+    if (errorGenerados) {
+      console.error("❌ Error obteniendo eventos generados:", errorGenerados);
+    }
+
+    const totalCache = eventosCache?.length || 0;
+    const totalGeneradas = eventosGenerados?.length || 0;
+    const totalRespuestas = totalCache + totalGeneradas;
+    const ratioCache = totalRespuestas > 0 ? Math.round((totalCache / totalRespuestas) * 100) : 0;
+
+    res.json({
+      ok: true,
+      estadisticas: {
+        respuestasEnCache: totalCache,
+        respuestasGeneradas: totalGeneradas,
+        totalRespuestas,
+        ratioCache: `${ratioCache}%`,
+        ahorroTokens: totalCache > 0 ? "Significativo" : "Sin ahorro aún",
+        ultimaActividadCache: eventosCache?.[0]?.fecha || null
+      },
+      eventos: eventosCache || [],
+      status: "Estadísticas de caché obtenidas exitosamente"
+    });
+  } catch (error) {
+    console.error("❌ Error inesperado:", error);
+    res.status(500).json({ 
+      ok: false, 
+      error: "Error inesperado" 
+    });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
@@ -395,5 +454,6 @@ app.listen(PORT, () => {
   console.log("   GET  /api/valeria/patrones - Análisis de patrones de comportamiento");
   console.log("   GET  /api/valeria/rendimiento - Análisis de rendimiento del sistema");
   console.log("   GET  /api/valeria/reporte - Reporte ejecutivo completo");
+  console.log("   GET  /api/valeria/cache - Estadísticas de caché de respuestas");
   console.log("🔗 URL pública ngrok: https://0f85858ad965.ngrok-free.app");
 });
