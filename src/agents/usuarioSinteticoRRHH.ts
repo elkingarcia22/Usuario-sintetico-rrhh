@@ -2,6 +2,7 @@ import { model } from "../config/gemini";
 import { supabase, SupabaseManager } from "../config/supabase";
 import { obtenerContexto } from "../modules/memoriaContextual";
 import { simularDecision, analizarPatronesDecisiones } from "../modules/simuladorDecisiones";
+import { registrarEvento } from "../modules/trackerComportamiento.js";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -50,6 +51,12 @@ ${contextoPrevio || "(sin historial previo)"}
     salida: respuesta,
     fecha: new Date(),
   });
+
+  await registrarEvento(
+    "respuesta_generada",
+    `Valeria respondió a un prompt: "${prompt.substring(0, 60)}..."`,
+    Math.floor(Math.random() * (100 - 70 + 1)) + 70 // confianza simulada 70–100
+  );
 
   return respuesta;
 }

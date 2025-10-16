@@ -1,8 +1,16 @@
 import express from "express";
+import { createClient } from "@supabase/supabase-js";
+import { registrarEvento } from "../src/modules/trackerComportamiento.js";
 import dotenv from "dotenv";
 
 // Cargar variables de entorno
 dotenv.config({ path: '.env.local' });
+
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+
+// Configurar Supabase
+const supabase = createClient(SUPABASE_URL!, SUPABASE_ANON_KEY!);
 
 const app = express();
 app.use(express.json());
@@ -19,9 +27,52 @@ app.use((req, res, next) => {
   }
 });
 
-// Función para responder como RRHH (versión simplificada)
+// Función para obtener contexto de Supabase
+async function obtenerContexto(usuario: string, limite = 5) {
+  try {
+    const { data, error } = await supabase
+      .from("registro_interacciones")
+      .select("entrada, salida")
+      .eq("usuario", usuario)
+      .order("fecha", { ascending: false })
+      .limit(limite);
+
+    if (error) {
+      console.error("❌ Error al recuperar contexto:", error);
+      return "";
+    }
+
+    return data
+      .map(
+        (row) => `Usuario preguntó: ${row.entrada}\nRespuesta previa: ${row.salida}`
+      )
+      .join("\n");
+  } catch (error) {
+    console.error("❌ Error inesperado:", error);
+    return "";
+  }
+}
+
+// Función para responder como RRHH con Supabase real y tracking
 async function responderComoRRHH(prompt: string) {
-  // Simular respuesta de Valeria Gómez
+  // Registrar evento de inicio de interacción
+  await registrarEvento(
+    "interaccion_iniciada", 
+    `Nueva pregunta recibida: ${prompt.substring(0, 50)}...`, 
+    95
+  );
+
+  // Obtener contexto de conversaciones anteriores
+  const contextoPrevio = await obtenerContexto("Valeria Gómez", 3);
+  
+  // Registrar evento de contexto recuperado
+  await registrarEvento(
+    "contexto_recuperado", 
+    `Contexto previo obtenido: ${contextoPrevio ? 'Sí' : 'No'}`, 
+    90
+  );
+  
+  // Simular respuesta de Valeria Gómez basada en contexto
   const respuestas = [
     `Hola, soy Valeria Gómez, HR Manager. Como profesional en recursos humanos, te recomiendo enfocarte en la comunicación clara y el seguimiento personalizado. Mi estilo orientado a datos con sensibilidad humana me lleva a priorizar soluciones que combinen análisis cuantitativo con empatía.`,
     
@@ -36,8 +87,55 @@ async function responderComoRRHH(prompt: string) {
 
   const respuesta = respuestas[Math.floor(Math.random() * respuestas.length)];
   
-  // Simular guardado en Supabase (opcional)
-  console.log(`📝 Interacción guardada: "${prompt}" -> "${respuesta.substring(0, 50)}..."`);
+  // Registrar evento de respuesta generada
+  await registrarEvento(
+    "respuesta_generada", 
+    `Respuesta generada con ${respuesta.length} caracteres`, 
+    85
+  );
+  
+  // Guardar REALMENTE en Supabase
+  try {
+    const { data, error } = await supabase
+      .from("registro_interacciones")
+      .insert({
+        usuario: "Valeria Gómez",
+        entrada: prompt,
+        salida: respuesta,
+        fecha: new Date().toISOString()
+      })
+      .select();
+
+    if (error) {
+      console.error("❌ Error guardando en Supabase:", error);
+      await registrarEvento(
+        "error_guardado", 
+        `Error guardando interacción: ${error.message}`, 
+        0
+      );
+    } else {
+      console.log(`✅ Interacción guardada en Supabase con ID: ${data[0]?.id}`);
+      await registrarEvento(
+        "interaccion_guardada", 
+        `Interacción guardada exitosamente con ID: ${data[0]?.id}`, 
+        100
+      );
+    }
+  } catch (error) {
+    console.error("❌ Error inesperado guardando:", error);
+    await registrarEvento(
+      "error_inesperado", 
+      `Error inesperado: ${String(error)}`, 
+      0
+    );
+  }
+  
+  // Registrar evento de interacción completada
+  await registrarEvento(
+    "interaccion_completada", 
+    `Interacción completada exitosamente`, 
+    95
+  );
   
   return respuesta;
 }
@@ -103,6 +201,85 @@ app.get("/api/valeria/info", (req, res) => {
   });
 });
 
+// Endpoint para ver historial de interacciones
+app.get("/api/valeria/historial", async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("registro_interacciones")
+      .select("*")
+      .eq("usuario", "Valeria Gómez")
+      .order("fecha", { ascending: false })
+      .limit(10);
+
+    if (error) {
+      console.error("❌ Error obteniendo historial:", error);
+      return res.status(500).json({ 
+        ok: false, 
+        error: "Error obteniendo historial" 
+      });
+    }
+
+    res.json({
+      ok: true,
+      total: data?.length || 0,
+      interacciones: data || []
+    });
+  } catch (error) {
+    console.error("❌ Error inesperado:", error);
+    res.status(500).json({ 
+      ok: false, 
+      error: "Error inesperado" 
+    });
+  }
+});
+
+// Endpoint para ver tracking de comportamiento
+app.get("/api/valeria/tracking", async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("tracking_valeria")
+      .select("*")
+      .order("fecha", { ascending: false })
+      .limit(20);
+
+    if (error) {
+      console.error("❌ Error obteniendo tracking:", error);
+      return res.status(500).json({ 
+        ok: false, 
+        error: "Error obteniendo tracking" 
+      });
+    }
+
+    // Agrupar eventos por tipo
+    const eventosPorTipo = data?.reduce((acc: any, evento: any) => {
+      if (!acc[evento.evento]) {
+        acc[evento.evento] = [];
+      }
+      acc[evento.evento].push(evento);
+      return acc;
+    }, {}) || {};
+
+    res.json({
+      ok: true,
+      total: data?.length || 0,
+      eventos: data || [],
+      eventosPorTipo,
+      resumen: {
+        totalEventos: data?.length || 0,
+        tiposEventos: Object.keys(eventosPorTipo).length,
+        confianzaPromedio: data?.length ? 
+          Math.round(data.reduce((sum: number, e: any) => sum + e.confianza, 0) / data.length) : 0
+      }
+    });
+  } catch (error) {
+    console.error("❌ Error inesperado:", error);
+    res.status(500).json({ 
+      ok: false, 
+      error: "Error inesperado" 
+    });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
@@ -111,4 +288,7 @@ app.listen(PORT, () => {
   console.log("   POST /api/valeria - Interactuar con Valeria");
   console.log("   GET  /api/valeria/health - Estado del servidor");
   console.log("   GET  /api/valeria/info - Información de Valeria");
+  console.log("   GET  /api/valeria/historial - Historial de interacciones en Supabase");
+  console.log("   GET  /api/valeria/tracking - Tracking de comportamiento de Valeria");
+  console.log("🔗 URL pública ngrok: https://0f85858ad965.ngrok-free.app");
 });
