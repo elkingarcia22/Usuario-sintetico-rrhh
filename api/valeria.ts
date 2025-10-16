@@ -1,6 +1,7 @@
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
 import { registrarEvento } from "../src/modules/trackerComportamiento.js";
+import { obtenerEstadisticasClarity } from "../src/modules/trackerVisual.js";
 import dotenv from "dotenv";
 
 // Cargar variables de entorno
@@ -280,6 +281,32 @@ app.get("/api/valeria/tracking", async (req, res) => {
   }
 });
 
+// Endpoint para ver estadísticas de Clarity
+app.get("/api/valeria/clarity", async (req, res) => {
+  try {
+    const estadisticas = await obtenerEstadisticasClarity();
+    
+    if (!estadisticas) {
+      return res.status(500).json({ 
+        ok: false, 
+        error: "Error obteniendo estadísticas de Clarity" 
+      });
+    }
+
+    res.json({
+      ok: true,
+      ...estadisticas,
+      status: "Clarity activo y monitoreando"
+    });
+  } catch (error) {
+    console.error("❌ Error inesperado:", error);
+    res.status(500).json({ 
+      ok: false, 
+      error: "Error inesperado" 
+    });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
@@ -290,5 +317,6 @@ app.listen(PORT, () => {
   console.log("   GET  /api/valeria/info - Información de Valeria");
   console.log("   GET  /api/valeria/historial - Historial de interacciones en Supabase");
   console.log("   GET  /api/valeria/tracking - Tracking de comportamiento de Valeria");
+  console.log("   GET  /api/valeria/clarity - Estadísticas de Microsoft Clarity");
   console.log("🔗 URL pública ngrok: https://0f85858ad965.ngrok-free.app");
 });
